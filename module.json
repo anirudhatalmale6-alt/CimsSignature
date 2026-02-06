@@ -1,0 +1,11 @@
+{
+    "name": "CimsSignature",
+    "alias": "cims_signature",
+    "description": "Wacom STU-430/G Signature Capture Module",
+    "keywords": ["signature", "wacom", "stu430", "sigcaptx"],
+    "priority": 0,
+    "providers": [
+        "Modules\\CimsSignature\\Providers\\CimsSignatureServiceProvider"
+    ],
+    "files": []
+}

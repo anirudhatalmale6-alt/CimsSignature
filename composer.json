@@ -1,0 +1,12 @@
+{
+    "name": "modules/cims-signature",
+    "description": "Wacom STU-430/G Signature Capture Module",
+    "type": "laravel-module",
+    "license": "proprietary",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Modules\\CimsSignature\\": ""
+        }
+    }
+}
