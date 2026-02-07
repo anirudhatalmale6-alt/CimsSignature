@@ -57,15 +57,16 @@
                         <div class="row">
                             <div class="col-12">
                                 <div class="card bg-light">
-                                    <div class="card-header">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
                                         <h5 class="mb-0">Signature</h5>
+                                        <span id="deviceStatus" class="badge bg-secondary">No device connected</span>
                                     </div>
                                     <div class="card-body text-center">
                                         <!-- Signature Display Box -->
                                         <div id="signatureBox" style="border: 2px dashed #ccc; min-height: 150px; background: #fff; display: flex; align-items: center; justify-content: center; margin-bottom: 15px;">
                                             <div id="signaturePlaceholder">
                                                 <i class="fa fa-pen fa-3x text-muted mb-2"></i>
-                                                <p class="text-muted mb-0">Click "Capture Signature" to sign on Wacom device</p>
+                                                <p class="text-muted mb-0">Click "Connect Wacom" then "Capture" to sign</p>
                                             </div>
                                             <img id="signatureImage" src="" alt="Signature" style="max-width: 100%; max-height: 140px; display: none;">
                                         </div>
@@ -73,9 +74,15 @@
                                         <!-- Hidden field to store signature data -->
                                         <input type="hidden" id="signature_data" name="signature_data">
 
+                                        <!-- Wacom STU Canvas (hidden, used for capture) -->
+                                        <canvas id="stuCanvas" style="display: none;"></canvas>
+
                                         <!-- Buttons -->
-                                        <div class="btn-group">
-                                            <button type="button" id="btnCapture" class="btn btn-primary btn-lg">
+                                        <div class="btn-group mb-3">
+                                            <button type="button" id="btnConnect" class="btn btn-info btn-lg">
+                                                <i class="fa fa-usb"></i> Connect Wacom
+                                            </button>
+                                            <button type="button" id="btnCapture" class="btn btn-primary btn-lg" disabled>
                                                 <i class="fa fa-pen"></i> Capture Signature
                                             </button>
                                             <button type="button" id="btnClear" class="btn btn-warning btn-lg" disabled>
@@ -85,43 +92,37 @@
                                                 <i class="fa fa-save"></i> Save Signature
                                             </button>
                                         </div>
+
+                                        <div class="text-muted small">
+                                            <p class="mb-1"><strong>Note:</strong> Use Chrome, Edge, or Opera browser for Wacom support.</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Connection Status -->
-                        <div class="row mt-3">
+                        <!-- Fallback Canvas -->
+                        <div class="row mt-4">
                             <div class="col-12">
-                                <div id="connectionStatus" class="text-muted small">
-                                    <i class="fa fa-circle text-secondary"></i> SigCaptX Status: Not Connected
+                                <div class="card border-info">
+                                    <div class="card-header bg-info text-white">
+                                        <h6 class="mb-0">Alternative: Draw with Mouse/Touch</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <canvas id="fallbackCanvas" width="500" height="150" style="border: 1px solid #000; background: #fff; cursor: crosshair;"></canvas>
+                                        <div class="mt-2">
+                                            <button type="button" id="btnUseFallback" class="btn btn-info btn-sm">
+                                                <i class="fa fa-check"></i> Use This Signature
+                                            </button>
+                                            <button type="button" id="btnClearFallback" class="btn btn-secondary btn-sm">
+                                                <i class="fa fa-eraser"></i> Clear
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </form>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Fallback Canvas for testing without Wacom -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card border-info">
-                <div class="card-header bg-info text-white">
-                    <h5 class="mb-0">Fallback: Mouse/Touch Signature (for testing)</h5>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted small">Use this if SigCaptX is not available or for testing:</p>
-                    <canvas id="fallbackCanvas" width="500" height="150" style="border: 1px solid #000; background: #fff; cursor: crosshair;"></canvas>
-                    <div class="mt-2">
-                        <button type="button" id="btnUseFallback" class="btn btn-info btn-sm">
-                            <i class="fa fa-check"></i> Use This Signature
-                        </button>
-                        <button type="button" id="btnClearFallback" class="btn btn-secondary btn-sm">
-                            <i class="fa fa-eraser"></i> Clear Canvas
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -132,6 +133,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Elements
+    const btnConnect = document.getElementById('btnConnect');
     const btnCapture = document.getElementById('btnCapture');
     const btnClear = document.getElementById('btnClear');
     const btnSave = document.getElementById('btnSave');
@@ -140,54 +142,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const signatureData = document.getElementById('signature_data');
     const signatureForm = document.getElementById('signatureForm');
     const statusMessage = document.getElementById('statusMessage');
-    const connectionStatus = document.getElementById('connectionStatus');
+    const deviceStatus = document.getElementById('deviceStatus');
+    const stuCanvas = document.getElementById('stuCanvas');
+    const stuCtx = stuCanvas.getContext('2d');
 
-    // Fallback canvas
-    const canvas = document.getElementById('fallbackCanvas');
-    const ctx = canvas.getContext('2d');
-    let isDrawing = false;
-    let lastX = 0;
-    let lastY = 0;
+    // Wacom STU device
+    let stuDevice = null;
+    let isCapturing = false;
+    let penData = [];
 
-    // SigCaptX variables
-    let sigCapt = null;
-    let sigCtl = null;
-    let dynCapt = null;
+    // STU-430 dimensions
+    const STU_WIDTH = 320;
+    const STU_HEIGHT = 200;
 
-    // Initialize SigCaptX
-    function initSigCaptX() {
-        if (typeof wgssSigCaptX === 'undefined') {
-            updateConnectionStatus('SigCaptX library not loaded', 'warning');
-            return;
-        }
-
-        wgssSigCaptX.init().then(function() {
-            updateConnectionStatus('Connecting to SigCaptX...', 'info');
-            return wgssSigCaptX.checkSigCaptXIsRunning();
-        }).then(function(isRunning) {
-            if (isRunning) {
-                updateConnectionStatus('SigCaptX Connected', 'success');
-                return wgssSigCaptX.getSigCapt();
-            } else {
-                throw new Error('SigCaptX service not running');
-            }
-        }).then(function(sc) {
-            sigCapt = sc;
-        }).catch(function(error) {
-            updateConnectionStatus('SigCaptX not available: ' + error.message, 'danger');
-            console.error('SigCaptX error:', error);
-        });
-    }
-
-    // Update connection status display
-    function updateConnectionStatus(message, type) {
-        const colors = {
-            'success': 'text-success',
-            'danger': 'text-danger',
-            'warning': 'text-warning',
-            'info': 'text-info'
-        };
-        connectionStatus.innerHTML = '<i class="fa fa-circle ' + (colors[type] || 'text-secondary') + '"></i> SigCaptX Status: ' + message;
+    // Check WebHID support
+    if (!navigator.hid) {
+        showMessage('WebHID not supported. Please use Chrome, Edge, or Opera browser.', 'warning');
+        btnConnect.disabled = true;
     }
 
     // Show status message
@@ -195,40 +166,153 @@ document.addEventListener('DOMContentLoaded', function() {
         statusMessage.className = 'alert alert-' + type;
         statusMessage.textContent = message;
         statusMessage.classList.remove('d-none');
-        setTimeout(function() {
-            statusMessage.classList.add('d-none');
-        }, 5000);
+        if (type === 'success') {
+            setTimeout(function() {
+                statusMessage.classList.add('d-none');
+            }, 5000);
+        }
     }
 
-    // Capture signature using SigCaptX
-    btnCapture.addEventListener('click', function() {
-        if (sigCapt) {
-            captureWithSigCaptX();
-        } else {
-            showMessage('SigCaptX not available. Please use the fallback canvas below or ensure SigCaptX is running.', 'warning');
+    // Update device status badge
+    function updateDeviceStatus(status, type) {
+        deviceStatus.textContent = status;
+        deviceStatus.className = 'badge bg-' + type;
+    }
+
+    // Connect to Wacom STU device
+    btnConnect.addEventListener('click', async function() {
+        try {
+            showMessage('Requesting device access...', 'info');
+
+            // Request HID device - Wacom STU vendor ID is 0x056A
+            const devices = await navigator.hid.requestDevice({
+                filters: [
+                    { vendorId: 0x056A }, // Wacom
+                ]
+            });
+
+            if (devices.length === 0) {
+                showMessage('No device selected', 'warning');
+                return;
+            }
+
+            stuDevice = devices[0];
+
+            if (!stuDevice.opened) {
+                await stuDevice.open();
+            }
+
+            updateDeviceStatus('Connected: ' + stuDevice.productName, 'success');
+            showMessage('Wacom device connected! Click "Capture Signature" to begin.', 'success');
+            btnCapture.disabled = false;
+
+            // Set up canvas
+            stuCanvas.width = STU_WIDTH;
+            stuCanvas.height = STU_HEIGHT;
+            stuCtx.fillStyle = '#fff';
+            stuCtx.fillRect(0, 0, STU_WIDTH, STU_HEIGHT);
+            stuCtx.strokeStyle = '#000';
+            stuCtx.lineWidth = 2;
+            stuCtx.lineCap = 'round';
+            stuCtx.lineJoin = 'round';
+
+            // Handle input reports from device
+            stuDevice.addEventListener('inputreport', handleInputReport);
+
+        } catch (error) {
+            console.error('Connection error:', error);
+            showMessage('Failed to connect: ' + error.message, 'danger');
         }
     });
 
-    function captureWithSigCaptX() {
-        sigCapt.getDynCapt().then(function(dc) {
-            dynCapt = dc;
-            return dynCapt.setLicence("<!-- Your license here if required -->");
-        }).then(function() {
-            return dynCapt.capture(sigCapt, "Please sign below");
-        }).then(function(sigObj) {
-            if (sigObj && !sigObj.isCaptured) {
-                showMessage('Signature capture cancelled', 'warning');
-                return;
+    // Handle pen input from STU device
+    function handleInputReport(event) {
+        if (!isCapturing) return;
+
+        const data = new Uint8Array(event.data.buffer);
+
+        // Parse pen data - format depends on STU model
+        // STU-430 typically sends: reportId, x_low, x_high, y_low, y_high, pressure_low, pressure_high, buttons
+        if (data.length >= 7) {
+            const x = data[1] | (data[2] << 8);
+            const y = data[3] | (data[4] << 8);
+            const pressure = data[5] | (data[6] << 8);
+            const buttons = data.length > 7 ? data[7] : 0;
+
+            // Check if pen is touching (pressure > 0 or button pressed)
+            const penDown = pressure > 10 || (buttons & 0x01);
+
+            if (penDown) {
+                // Scale coordinates to canvas
+                const scaledX = (x / 4096) * STU_WIDTH;
+                const scaledY = (y / 4096) * STU_HEIGHT;
+
+                if (penData.length > 0) {
+                    const lastPoint = penData[penData.length - 1];
+                    stuCtx.beginPath();
+                    stuCtx.moveTo(lastPoint.x, lastPoint.y);
+                    stuCtx.lineTo(scaledX, scaledY);
+                    stuCtx.stroke();
+                }
+
+                penData.push({ x: scaledX, y: scaledY, pressure: pressure });
             }
-            return sigObj.renderBitmap("image/png", 300, 100, 0.5, 0x00000000, 0xFFFFFFFF, 10, 10);
-        }).then(function(imageData) {
-            if (imageData) {
-                displaySignature('data:image/png;base64,' + imageData);
-            }
-        }).catch(function(error) {
-            showMessage('Capture error: ' + error.message, 'danger');
-            console.error('Capture error:', error);
-        });
+        }
+    }
+
+    // Start signature capture
+    btnCapture.addEventListener('click', function() {
+        if (!stuDevice) {
+            showMessage('Please connect device first', 'warning');
+            return;
+        }
+
+        // Clear canvas
+        stuCtx.fillStyle = '#fff';
+        stuCtx.fillRect(0, 0, STU_WIDTH, STU_HEIGHT);
+        penData = [];
+        isCapturing = true;
+
+        btnCapture.innerHTML = '<i class="fa fa-stop"></i> Stop Capture';
+        btnCapture.classList.remove('btn-primary');
+        btnCapture.classList.add('btn-danger');
+
+        showMessage('Signing on Wacom device... Press button again when done.', 'info');
+
+        // Toggle capture mode
+        btnCapture.onclick = function() {
+            stopCapture();
+        };
+    });
+
+    // Stop capture and display signature
+    function stopCapture() {
+        isCapturing = false;
+
+        btnCapture.innerHTML = '<i class="fa fa-pen"></i> Capture Signature';
+        btnCapture.classList.remove('btn-danger');
+        btnCapture.classList.add('btn-primary');
+        btnCapture.onclick = function() {
+            // Clear and restart
+            stuCtx.fillStyle = '#fff';
+            stuCtx.fillRect(0, 0, STU_WIDTH, STU_HEIGHT);
+            penData = [];
+            isCapturing = true;
+            btnCapture.innerHTML = '<i class="fa fa-stop"></i> Stop Capture';
+            btnCapture.classList.remove('btn-primary');
+            btnCapture.classList.add('btn-danger');
+            showMessage('Signing on Wacom device... Press button again when done.', 'info');
+            btnCapture.onclick = function() { stopCapture(); };
+        };
+
+        if (penData.length > 5) {
+            // Get signature image from canvas
+            const dataUrl = stuCanvas.toDataURL('image/png');
+            displaySignature(dataUrl);
+            showMessage('Signature captured! Fill in details and click Save.', 'success');
+        } else {
+            showMessage('No signature detected. Please try again.', 'warning');
+        }
     }
 
     // Display captured signature
@@ -249,6 +333,11 @@ document.addEventListener('DOMContentLoaded', function() {
         signaturePlaceholder.style.display = 'block';
         btnClear.disabled = true;
         btnSave.disabled = true;
+        penData = [];
+        if (stuCtx) {
+            stuCtx.fillStyle = '#fff';
+            stuCtx.fillRect(0, 0, STU_WIDTH, STU_HEIGHT);
+        }
     });
 
     // Save signature
@@ -257,6 +346,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!signatureData.value) {
             showMessage('Please capture a signature first', 'warning');
+            return;
+        }
+
+        if (!document.getElementById('client_name').value) {
+            showMessage('Please enter client name', 'warning');
             return;
         }
 
@@ -295,6 +389,12 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // ========== Fallback Canvas Drawing ==========
+    const canvas = document.getElementById('fallbackCanvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = '#000';
@@ -367,11 +467,8 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnUseFallback').addEventListener('click', function() {
         const dataUrl = canvas.toDataURL('image/png');
         displaySignature(dataUrl);
-        showMessage('Canvas signature loaded. Fill in details and click Save.', 'info');
+        showMessage('Signature loaded. Fill in details and click Save.', 'info');
     });
-
-    // Try to initialize SigCaptX
-    initSigCaptX();
 });
 </script>
 @endpush
