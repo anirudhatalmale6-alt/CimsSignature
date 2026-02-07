@@ -49,7 +49,7 @@
                                         <td>
                                             <img src="{{ $sig->signature_data }}" alt="Signature" style="max-width: 150px; max-height: 50px; border: 1px solid #ddd;">
                                         </td>
-                                        <td>{{ Str::limit($sig->purpose, 30) ?: '-' }}</td>
+                                        <td>{{ \Illuminate\Support\Str::limit($sig->purpose, 30) ?: '-' }}</td>
                                         <td>{{ $sig->captured_at->format('d M Y H:i') }}</td>
                                         <td>
                                             <a href="{{ route('signatures.show', $sig) }}" class="btn btn-sm btn-info" title="View">
@@ -89,7 +89,7 @@ document.querySelectorAll('.btn-delete').forEach(function(btn) {
         if (!confirm('Are you sure you want to delete this signature?')) return;
 
         const id = this.dataset.id;
-        fetch('/signatures/' + id, {
+        fetch('/cims/signatures/' + id, {
             method: 'DELETE',
             headers: {
                 'X-CSRF-TOKEN': '{{ csrf_token() }}',
